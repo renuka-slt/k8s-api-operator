@@ -3,20 +3,29 @@ module github.com/wso2/k8s-api-operator/api-operator
 go 1.13
 
 require (
+	github.com/BurntSushi/toml v0.3.1
 	github.com/aws/aws-sdk-go v1.29.3
 	github.com/docker/libtrust v0.0.0-20160708172513-aabc10ec26b7 // indirect
 	github.com/emicklei/go-restful v2.13.0+incompatible // indirect
-	github.com/getkin/kin-openapi v0.2.0
-	github.com/go-openapi/spec v0.19.4
+	github.com/envoyproxy/go-control-plane v0.9.5
+	github.com/fsnotify/fsnotify v1.4.9 // indirect
+	github.com/getkin/kin-openapi v0.8.0
+	github.com/ghodss/yaml v1.0.0
+	github.com/go-openapi/spec v0.19.7
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
+	github.com/golang/protobuf v1.4.0
 	github.com/google/gofuzz v1.1.0 // indirect
+	github.com/gorilla/mux v1.7.4
 	github.com/heroku/docker-registry-client v0.0.0-20181004091502-47ecf50fd8d4
 	github.com/json-iterator/go v1.1.10 // indirect
 	github.com/openshift/api v3.9.0+incompatible
 	github.com/operator-framework/operator-sdk v0.18.0
 	github.com/sirupsen/logrus v1.5.0
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/testify v1.5.1
+	google.golang.org/grpc v1.29.1
+	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 	gopkg.in/yaml.v2 v2.2.8
 	istio.io/api v0.0.0-20200720192137-962b7ea3a72a
 	istio.io/client-go v0.0.0-20200717004237-1af75184beba

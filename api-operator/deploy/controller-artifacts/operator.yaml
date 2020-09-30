@@ -33,10 +33,14 @@ spec:
       containers:
         - name: api-operator
           # Replace this with the built image name
-          image: wso2/k8s-api-operator:1.2.1
+          image: localhost:5000/wso2/k8s-api-operator:v1.3.0-v1
           command:
           - api-operator
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /resources/conf
+              name: mgw-config
+              readOnly: true
           env:
             - name: WATCH_NAMESPACE
               value: ""
@@ -46,3 +50,23 @@ spec:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
               value: "api-operator"
+      volumes:
+        - name: mgw-config
+          configMap:
+            name: mgw-config
+      imagePullSecrets:
+        - name: docker-registry-credentials
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-operator
+  namespace: wso2-system
+spec:
+  selector:
+    name: api-operator
+  ports:
+    - protocol: TCP
+      port: 18000
+      targetPort: 18000

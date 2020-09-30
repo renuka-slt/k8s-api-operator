@@ -1,0 +1,25 @@
+# The configuration file for mgw
+[server]
+ip = "localhost"
+port = "9095"
+
+[tls]
+enabled = false
+keystore = "security/wso2carbon.jks"
+alias = "wso2carbon"
+password = "wso2carbon"
+
+[admin.user]
+username = "admin"
+password = "admin"
+
+[apis]
+location = "resources/apis/"
+
+[envoy]
+listenerAddress = "0.0.0.0"
+listenerPort = 10000
+apiDefaultPort = 8080
+clusterTimeoutInSeconds = 20
+
+  

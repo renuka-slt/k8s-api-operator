@@ -24,9 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strconv"
 	"strings"
 )
 
@@ -67,10 +65,10 @@ func Deployment(client *client.Client, api *wso2v1alpha1.API, controlConfigData 
 	owner *[]metav1.OwnerReference) (*appsv1.Deployment, error) {
 	regConfig := registry.GetConfig()
 	labels := map[string]string{"app": api.Name}
-	liveDelay, _ := strconv.ParseInt(controlConfigData[livenessProbeInitialDelaySeconds], 10, 32)
-	livePeriod, _ := strconv.ParseInt(controlConfigData[livenessProbePeriodSeconds], 10, 32)
-	readDelay, _ := strconv.ParseInt(controlConfigData[readinessProbeInitialDelaySeconds], 10, 32)
-	readPeriod, _ := strconv.ParseInt(controlConfigData[readinessProbePeriodSeconds], 10, 32)
+	//liveDelay, _ := strconv.ParseInt(controlConfigData[livenessProbeInitialDelaySeconds], 10, 32)
+	//livePeriod, _ := strconv.ParseInt(controlConfigData[livenessProbePeriodSeconds], 10, 32)
+	//readDelay, _ := strconv.ParseInt(controlConfigData[readinessProbeInitialDelaySeconds], 10, 32)
+	//readPeriod, _ := strconv.ParseInt(controlConfigData[readinessProbePeriodSeconds], 10, 32)
 	reps := int32(api.Spec.Replicas)
 
 	resReqCPU := controlConfigData[resourceRequestCPU]
@@ -80,6 +78,24 @@ func Deployment(client *client.Client, api *wso2v1alpha1.API, controlConfigData 
 
 	// Mount the user specified Config maps and secrets to mgw deploy volume
 	deployVolume, deployVolumeMount, errDeploy := UserDeploymentVolume(client, api)
+
+	// envoy yaml
+	envoyVol := corev1.Volume{
+		Name: "envoy-config",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: "envoy-config",
+				},
+			},
+		},
+	}
+	envoyVolMout := corev1.VolumeMount{
+		Name:      "envoy-config",
+		MountPath: "/etc/envoy",
+	}
+	deployVolume = append(deployVolume, envoyVol)
+	deployVolumeMount = append(deployVolumeMount, envoyVolMout)
 
 	if Configs.AnalyticsEnabled {
 		// mounts an empty dir volume to be used when analytics is enabled
@@ -102,7 +118,10 @@ func Deployment(client *client.Client, api *wso2v1alpha1.API, controlConfigData 
 			ContainerPort: Configs.HttpPort,
 		},
 		{
-			ContainerPort: Configs.HttpsPort,
+			ContainerPort: 9000,
+		},
+		{
+			ContainerPort: 10000,
 		},
 	}
 	// setting observability port
@@ -124,19 +143,11 @@ func Deployment(client *client.Client, api *wso2v1alpha1.API, controlConfigData 
 		})
 	}
 
-	// setting container image
-	var image string
-	if api.Spec.Image != "" {
-		image = api.Spec.Image
-	} else {
-		image = regConfig.ImagePath
-	}
-
 	// API container
 	apiContainer := corev1.Container{
 		Name:            "mgw" + api.Name,
-		Image:           image,
-		ImagePullPolicy: "Always",
+		Image:           "envoyproxy/envoy:v1.14.1",
+		ImagePullPolicy: "IfNotPresent",
 		Resources: corev1.ResourceRequirements{
 			Requests: req,
 			Limits:   lim,
@@ -144,30 +155,30 @@ func Deployment(client *client.Client, api *wso2v1alpha1.API, controlConfigData 
 		VolumeMounts: deployVolumeMount,
 		Env:          env,
 		Ports:        containerPorts,
-		ReadinessProbe: &corev1.Probe{
-			Handler: corev1.Handler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path:   "/health",
-					Port:   intstr.IntOrString{Type: intstr.Int, IntVal: Configs.HttpsPort},
-					Scheme: "HTTPS",
-				},
-			},
-			InitialDelaySeconds: int32(readDelay),
-			PeriodSeconds:       int32(readPeriod),
-			TimeoutSeconds:      1,
-		},
-		LivenessProbe: &corev1.Probe{
-			Handler: corev1.Handler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path:   "/health",
-					Port:   intstr.IntOrString{Type: intstr.Int, IntVal: Configs.HttpsPort},
-					Scheme: "HTTPS",
-				},
-			},
-			InitialDelaySeconds: int32(liveDelay),
-			PeriodSeconds:       int32(livePeriod),
-			TimeoutSeconds:      1,
-		},
+		//ReadinessProbe: &corev1.Probe{
+		//	Handler: corev1.Handler{
+		//		HTTPGet: &corev1.HTTPGetAction{
+		//			Path:   "/health",
+		//			Port:   intstr.IntOrString{Type: intstr.Int, IntVal: Configs.HttpsPort},
+		//			Scheme: "HTTPS",
+		//		},
+		//	},
+		//	InitialDelaySeconds: int32(readDelay),
+		//	PeriodSeconds:       int32(readPeriod),
+		//	TimeoutSeconds:      1,
+		//},
+		//LivenessProbe: &corev1.Probe{
+		//	Handler: corev1.Handler{
+		//		HTTPGet: &corev1.HTTPGetAction{
+		//			Path:   "/health",
+		//			Port:   intstr.IntOrString{Type: intstr.Int, IntVal: Configs.HttpsPort},
+		//			Scheme: "HTTPS",
+		//		},
+		//	},
+		//	InitialDelaySeconds: int32(liveDelay),
+		//	PeriodSeconds:       int32(livePeriod),
+		//	TimeoutSeconds:      1,
+		//},
 	}
 
 	*(ContainerList) = append(*(ContainerList), apiContainer)

@@ -54,12 +54,16 @@ func Service(api *wso2v1alpha1.API, operatorMode string, owner []metav1.OwnerRef
 	// service ports
 	servicePorts := []corev1.ServicePort{{
 		Name:       httpsConst,
-		Port:       Configs.HttpsPort,
-		TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: Configs.HttpsPort},
+		Port:       9095,
+		TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: 9095},
 	}, {
 		Name:       httpConst,
-		Port:       Configs.HttpPort,
-		TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: Configs.HttpPort},
+		Port:       9000,
+		TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: 9000},
+	}, {
+		Name:       "try-port",
+		Port:       10000,
+		TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: 10000},
 	}}
 	// setting observability port
 	if Configs.ObservabilityEnabled {

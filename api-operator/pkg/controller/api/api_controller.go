@@ -19,10 +19,9 @@ package api
 import (
 	"context"
 	"fmt"
-	"github.com/wso2/k8s-api-operator/api-operator/pkg/analytics"
 	wso2v1alpha1 "github.com/wso2/k8s-api-operator/api-operator/pkg/apis/wso2/v1alpha1"
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/endpoints"
-	"github.com/wso2/k8s-api-operator/api-operator/pkg/interceptors"
+	envoymgw "github.com/wso2/k8s-api-operator/api-operator/pkg/envoy/pkg/mgw"
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/k8s"
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/kaniko"
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/maps"
@@ -33,7 +32,6 @@ import (
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/str"
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/swagger"
 	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,7 +40,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -250,6 +247,7 @@ func (r *ReconcileAPI) Reconcile(request reconcile.Request) (reconcile.Result, e
 	}
 
 	swaggerCmNames := instance.Spec.Definition.SwaggerConfigmapNames
+	formattedSwaggers := make(map[string]string, len(swaggerCmNames))
 	for i, swaggerCmName := range swaggerCmNames {
 		// Check if the configmap mentioned in the crd object exist
 		swaggerConfMap := k8s.NewConfMap()
@@ -335,6 +333,8 @@ func (r *ReconcileAPI) Reconcile(request reconcile.Request) (reconcile.Result, e
 		}
 		// mount formatted swagger to kaniko job
 		formattedSwagger := swagger.PrettyString(swaggerDoc)
+		formattedSwaggers[swaggerCmName] = formattedSwagger
+
 		formattedSwaggerCmName := swaggerCmName + "-mgw"
 		// create configmap with modified swagger
 		swaggerDataMgw := map[string]string{swaggerFileName: formattedSwagger}
@@ -399,120 +399,120 @@ func (r *ReconcileAPI) Reconcile(request reconcile.Request) (reconcile.Result, e
 		return reconcile.Result{}, errReg
 	}
 
-	// if Spec.Image is supplied do not need to build the image (i.e. don't run kaniko job)
-	if instance.Spec.Image != "" {
-		reqLogger.Info("Image is specified in the in API CRD. Skipping the kaniko job")
-		r.recorder.Event(instance, corev1.EventTypeWarning, "KanikoJob",
-			"Skipping kaniko job. Image specified in API CRD.")
-	} else {
-		// check if the image already exists
-		imageExist, errImage := registry.IsImageExist(&r.client)
-		if errImage != nil {
-			reqLogger.Info("Error finding the MGW image in registry. Continue with creating Kaniko job",
-				"mgw_docker_image", mgwDockerImage)
-		} else {
-			reqLogger.Info("Existence of MGW runtime image in the docker registry",
-				"exists", strconv.FormatBool(imageExist), "mgw_docker_image", mgwDockerImage)
-		}
-
-		// create Kaniko job
-		// if updating api or overriding api or image not found
-		if instance.Spec.UpdateTimeStamp != "" || instance.Spec.Override || !imageExist {
-			r.recorder.Event(instance, corev1.EventTypeNormal, "Configs",
-				"Handling analytics & interceptors, rendering dockerfile & mgw configs, and creating the Kaniko job.")
-			// handling analytics
-			reqLogger.Info("Handling analytics")
-			if err := analytics.Handle(&r.client, userNamespace); err != nil {
-				reqLogger.Error(err, "Error handling analytics")
-				r.recorder.Event(instance, eventTypeError, "Configs", "Error while handling analytics.")
-				return reconcile.Result{}, err
-			}
-
-			// handling interceptors
-			reqLogger.Info("Handling interceptors")
-			if err := interceptors.Handle(&r.client, instance); err != nil {
-				reqLogger.Error(err, "Error handling interceptors")
-				r.recorder.Event(instance, eventTypeError, "Configs", "Error while handling interceptors.")
-				return reconcile.Result{}, err
-			}
-
-			// handling Kaniko docker file
-			reqLogger.Info("Rendering the dockerfile for Kaniko job and adding volumes to the Kaniko job")
-			if err := kaniko.HandleDockerFile(&r.client, userNamespace, instance.Name, ownerRef); err != nil {
-				reqLogger.Error(err, "Error rendering the docker file for Kaniko job and adding volumes to the Kaniko job")
-				r.recorder.Event(instance, eventTypeError, "KanikoJob",
-					"Error rendering the dockerfile for kaniko job.")
-				return reconcile.Result{}, err
-			}
-
-			// setting the MGW configs from APIM configmap
-			reqLogger.Info("Setting the MGW configs from APIM configmap")
-			if err := mgw.SetApimConfigs(&r.client); err != nil {
-				reqLogger.Error(err, "Error Setting the MGW configs from APIM configmap")
-				return reconcile.Result{}, err
-			}
-
-			// rendering MGW config file
-			reqLogger.Info("Rendering and adding the MGW configuration file to cluster")
-			if err := mgw.ApplyConfFile(&r.client, userNamespace, instance.Name, ownerRef); err != nil {
-				reqLogger.Error(err, "Error rendering and adding the MGW configuration file to cluster")
-				return reconcile.Result{}, err
-			}
-
-			kanikoArgs := k8s.NewConfMap()
-			err = k8s.Get(&r.client, types.NamespacedName{Namespace: wso2NameSpaceConst, Name: kanikoArgsConfigs}, kanikoArgs)
-			if err != nil && errors.IsNotFound(err) {
-				reqLogger.Info("No kaniko-arguments config map is available in wso2-system namespace")
-			}
-
-			var kanikoJob *batchv1.Job
-			reqLogger.Info("Deploying the Kaniko job in cluster")
-			r.recorder.Event(instance, corev1.EventTypeNormal, "KanikoJob", "Deploying kaniko job.")
-			kanikoJob = kaniko.Job(instance, controlConfigData, kanikoArgs.Data[kanikoArguments], ownerRef)
-			if err := controllerutil.SetControllerReference(instance, kanikoJob, r.scheme); err != nil {
-				return reconcile.Result{}, err
-			}
-			// create Kaniko job and set kaniko object
-			if errJob := k8s.CreateIfNotExists(&r.client, kanikoJob); errJob != nil {
-				r.recorder.Event(instance, eventTypeError, "KanikoJob",
-					"Error when creating the kaniko job.")
-				return reconcile.Result{}, errJob
-			}
-
-			// if kaniko job started (i.e. not nil)
-			if kanikoJob != nil {
-				// check for kaniko completion
-				for t := 40; kanikoJob.Status.Succeeded == 0 && t > 0; t -= 1 {
-					reqLogger.Info("Kaniko job is still not completed",
-						"retry_interval_seconds", "3 seconds", "requeue_step_within", t, "job_status", kanikoJob.Status)
-					// sleep 3 seconds
-					time.Sleep(3 * time.Second)
-					// refresh Kaniko job status
-					if err := k8s.Get(&r.client, types.NamespacedName{Namespace: kanikoJob.Namespace, Name: kanikoJob.Name},
-						kanikoJob); err != nil {
-						if errors.IsNotFound(err) {
-							reqLogger.Info("Kaniko job is not found, API has been deleted")
-							return reconcile.Result{}, nil
-						}
-						reqLogger.Error(err, "Error getting Kaniko job, requeue request")
-						return reconcile.Result{}, err
-					}
-				}
-
-				if kanikoJob.Status.Succeeded == 0 {
-					reqLogger.Info("Kaniko job is still not completed and requeue request",
-						"job_status", kanikoJob.Status)
-					r.recorder.Event(instance, corev1.EventTypeWarning, "KanikoJob",
-						"Kaniko job is still not completed. Re-queuing...")
-					return reconcile.Result{Requeue: true}, nil
-				} else {
-					reqLogger.Info("Kaniko job is completed successfully", "job_status", kanikoJob.Status)
-					r.recorder.Event(instance, corev1.EventTypeNormal, "KanikoJob",
-						"Kaniko job completed successfully.")
-				}
-			}
-		}
-	}
+	//// if Spec.Image is supplied do not need to build the image (i.e. don't run kaniko job)
+	//if instance.Spec.Image != "" {
+	//	reqLogger.Info("Image is specified in the in API CRD. Skipping the kaniko job")
+	//	r.recorder.Event(instance, corev1.EventTypeWarning, "KanikoJob",
+	//		"Skipping kaniko job. Image specified in API CRD.")
+	//} else {
+	//	// check if the image already exists
+	//	imageExist, errImage := registry.IsImageExist(&r.client)
+	//	if errImage != nil {
+	//		reqLogger.Info("Error finding the MGW image in registry. Continue with creating Kaniko job",
+	//			"mgw_docker_image", mgwDockerImage)
+	//	} else {
+	//		reqLogger.Info("Existence of MGW runtime image in the docker registry",
+	//			"exists", strconv.FormatBool(imageExist), "mgw_docker_image", mgwDockerImage)
+	//	}
+	//
+	//	// create Kaniko job
+	//	// if updating api or overriding api or image not found
+	//	if instance.Spec.UpdateTimeStamp != "" || instance.Spec.Override || !imageExist {
+	//		r.recorder.Event(instance, corev1.EventTypeNormal, "Configs",
+	//			"Handling analytics & interceptors, rendering dockerfile & mgw configs, and creating the Kaniko job.")
+	//		// handling analytics
+	//		reqLogger.Info("Handling analytics")
+	//		if err := analytics.Handle(&r.client, userNamespace); err != nil {
+	//			reqLogger.Error(err, "Error handling analytics")
+	//			r.recorder.Event(instance, eventTypeError, "Configs", "Error while handling analytics.")
+	//			return reconcile.Result{}, err
+	//		}
+	//
+	//		// handling interceptors
+	//		reqLogger.Info("Handling interceptors")
+	//		if err := interceptors.Handle(&r.client, instance); err != nil {
+	//			reqLogger.Error(err, "Error handling interceptors")
+	//			r.recorder.Event(instance, eventTypeError, "Configs", "Error while handling interceptors.")
+	//			return reconcile.Result{}, err
+	//		}
+	//
+	//		// handling Kaniko docker file
+	//		reqLogger.Info("Rendering the dockerfile for Kaniko job and adding volumes to the Kaniko job")
+	//		if err := kaniko.HandleDockerFile(&r.client, userNamespace, instance.Name, ownerRef); err != nil {
+	//			reqLogger.Error(err, "Error rendering the docker file for Kaniko job and adding volumes to the Kaniko job")
+	//			r.recorder.Event(instance, eventTypeError, "KanikoJob",
+	//				"Error rendering the dockerfile for kaniko job.")
+	//			return reconcile.Result{}, err
+	//		}
+	//
+	//		// setting the MGW configs from APIM configmap
+	//		reqLogger.Info("Setting the MGW configs from APIM configmap")
+	//		if err := mgw.SetApimConfigs(&r.client); err != nil {
+	//			reqLogger.Error(err, "Error Setting the MGW configs from APIM configmap")
+	//			return reconcile.Result{}, err
+	//		}
+	//
+	//		// rendering MGW config file
+	//		reqLogger.Info("Rendering and adding the MGW configuration file to cluster")
+	//		if err := mgw.ApplyConfFile(&r.client, userNamespace, instance.Name, ownerRef); err != nil {
+	//			reqLogger.Error(err, "Error rendering and adding the MGW configuration file to cluster")
+	//			return reconcile.Result{}, err
+	//		}
+	//
+	//		kanikoArgs := k8s.NewConfMap()
+	//		err = k8s.Get(&r.client, types.NamespacedName{Namespace: wso2NameSpaceConst, Name: kanikoArgsConfigs}, kanikoArgs)
+	//		if err != nil && errors.IsNotFound(err) {
+	//			reqLogger.Info("No kaniko-arguments config map is available in wso2-system namespace")
+	//		}
+	//
+	//		var kanikoJob *batchv1.Job
+	//		reqLogger.Info("Deploying the Kaniko job in cluster")
+	//		r.recorder.Event(instance, corev1.EventTypeNormal, "KanikoJob", "Deploying kaniko job.")
+	//		kanikoJob = kaniko.Job(instance, controlConfigData, kanikoArgs.Data[kanikoArguments], ownerRef)
+	//		if err := controllerutil.SetControllerReference(instance, kanikoJob, r.scheme); err != nil {
+	//			return reconcile.Result{}, err
+	//		}
+	//		// create Kaniko job and set kaniko object
+	//		if errJob := k8s.CreateIfNotExists(&r.client, kanikoJob); errJob != nil {
+	//			r.recorder.Event(instance, eventTypeError, "KanikoJob",
+	//				"Error when creating the kaniko job.")
+	//			return reconcile.Result{}, errJob
+	//		}
+	//
+	//		// if kaniko job started (i.e. not nil)
+	//		if kanikoJob != nil {
+	//			// check for kaniko completion
+	//			for t := 40; kanikoJob.Status.Succeeded == 0 && t > 0; t -= 1 {
+	//				reqLogger.Info("Kaniko job is still not completed",
+	//					"retry_interval_seconds", "3 seconds", "requeue_step_within", t, "job_status", kanikoJob.Status)
+	//				// sleep 3 seconds
+	//				time.Sleep(3 * time.Second)
+	//				// refresh Kaniko job status
+	//				if err := k8s.Get(&r.client, types.NamespacedName{Namespace: kanikoJob.Namespace, Name: kanikoJob.Name},
+	//					kanikoJob); err != nil {
+	//					if errors.IsNotFound(err) {
+	//						reqLogger.Info("Kaniko job is not found, API has been deleted")
+	//						return reconcile.Result{}, nil
+	//					}
+	//					reqLogger.Error(err, "Error getting Kaniko job, requeue request")
+	//					return reconcile.Result{}, err
+	//				}
+	//			}
+	//
+	//			if kanikoJob.Status.Succeeded == 0 {
+	//				reqLogger.Info("Kaniko job is still not completed and requeue request",
+	//					"job_status", kanikoJob.Status)
+	//				r.recorder.Event(instance, corev1.EventTypeWarning, "KanikoJob",
+	//					"Kaniko job is still not completed. Re-queuing...")
+	//				return reconcile.Result{Requeue: true}, nil
+	//			} else {
+	//				reqLogger.Info("Kaniko job is completed successfully", "job_status", kanikoJob.Status)
+	//				r.recorder.Event(instance, corev1.EventTypeNormal, "KanikoJob",
+	//					"Kaniko job completed successfully.")
+	//			}
+	//		}
+	//	}
+	//}
 
 	// kaniko job completed or not ran (i.e. image already exists)
 	// deploying the MGW runtime image
@@ -568,6 +568,8 @@ func (r *ReconcileAPI) Reconcile(request reconcile.Request) (reconcile.Result, e
 				return reconcile.Result{}, errHpaV2beta2
 			}
 		}
+
+		envoymgw.UpdateEnvoy(&formattedSwaggers)
 
 		reqLogger.Info("Operator mode", "mode", operatorMode)
 		if strings.EqualFold(operatorMode, ingressMode) || instance.Spec.IngressHostname != "" {

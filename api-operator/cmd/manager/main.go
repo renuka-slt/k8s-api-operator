@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	logger "github.com/sirupsen/logrus"
+	"github.com/wso2/k8s-api-operator/api-operator/pkg/envoy/pkg/configs"
+	envoymgw "github.com/wso2/k8s-api-operator/api-operator/pkg/envoy/pkg/mgw"
 	v1 "k8s.io/api/core/v1"
 	"os"
 	"runtime"
-
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
@@ -115,6 +117,16 @@ func main() {
 	if err != nil {
 		log.Info(err.Error())
 	}
+
+	// TODO move this code
+	//client := mgr.GetClient()
+	conf, errReadConfig := configs.ReadConfigs()
+	if errReadConfig != nil {
+		logger.Fatal("Error loading configuration. ", errReadConfig)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	envoymgw.Run(conf, ctx)
 
 	log.Info("Starting the Cmd.")
 
