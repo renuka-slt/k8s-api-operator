@@ -149,7 +149,7 @@ func updateSwaggerWithProdEPs(client *client.Client, swaggerExtensions map[strin
 			}
 
 			protocol := targetEpCr.Spec.ApplicationProtocol
-			port := strconv.Itoa(int(targetEpCr.Spec.Ports[0].Port))
+			port := strconv.Itoa(int(targetEpCr.Spec.Ports[0].TargetPort))
 			if strings.EqualFold(mode, Sidecar) { // sidecar mode
 				sidecarUrl := fmt.Sprintf("%v://localhost:%v", protocol, port)
 				sideCarEndpoints[prodEpVal] = true
