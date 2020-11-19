@@ -50,24 +50,12 @@ func (c *TlsCertificate) String() string {
 }
 
 // Type represents the type of action
-type Type int
-
-func (t Type) String() string {
-	switch t {
-	case Delete:
-		return "Delete"
-	case ForceUpdate:
-		return "ForceUpdate"
-	case DoNothing:
-		return "DoNothing"
-	}
-	return "Unsupported Action Type"
-}
+type Type string
 
 // Project types
 const (
-	Delete      = Type(1)
-	ForceUpdate = Type(2)
+	Delete      = Type("Delete")
+	ForceUpdate = Type("ForceUpdate")
 	// DoNothing for new projects that are invalid
-	DoNothing = Type(3)
+	DoNothing = Type("DoNothing")
 )

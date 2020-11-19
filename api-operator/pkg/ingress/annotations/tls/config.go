@@ -2,34 +2,62 @@ package tls
 
 import (
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/ingress/annotations/parser"
-	"k8s.io/api/networking/v1beta1"
+	networking "k8s.io/api/networking/v1beta1"
+	"regexp"
 	"strings"
 )
 
-type Mode string
-
 const (
-	NoTls       = Mode("no-tls")
-	Simple      = Mode("simple")
-	Mutual      = Mode("mtls")
-	Passthrough = Mode("passthrough")
-	Origination = Mode("origination")
+	Simple = "simple"
+	Mutual = "mtls"
 )
 
-// Annotations
+// Annotations suffixes
 const (
-	tlsMode = "tls-mode"
+	passthroughEnabledKey = "passthrough-enabled"
+	terminationModeKey    = "tls-termination-mode"
+	originationCertsKey   = "origination-certs"
+)
+
+var (
+	terminationModeRegex = regexp.MustCompile(`^(simple|mtls)$`)
 )
 
 type Config struct {
-	TlsMode               Mode
-	TlsOriginationEnabled bool
-	// TODO (renuka)
-	//TlsOriginationCerts
+	// PassthroughEnabled is true make TLS passthrough is applied all hosts defined in spec.tls.hosts
+	// Secrets defined in spec.tls is ignored in TLS passthrough mode
+	// When PassthroughEnabled is true, TLS origination is ignored
+	// Default to false
+	PassthroughEnabled bool
+
+	// TerminationMode is the TLS termination mode
+	// Could be one of "simple" or "mtls"
+	// Default to "simple"
+	TerminationMode string
+
+	// OriginationCerts defines the certs for TLS origination
+	OriginationCerts []string
 }
 
-func Parse(ing *v1beta1.Ingress) Config {
-	return Config{
-		TlsMode: Mode(strings.ToLower(ing.Annotations[parser.GetAnnotationWithPrefix(tlsMode)])),
+func Parse(ing *networking.Ingress) Config {
+	conf := Config{}
+	var err error
+
+	conf.PassthroughEnabled, err = parser.GetBoolAnnotation(ing, passthroughEnabledKey)
+	if err != nil {
+		conf.PassthroughEnabled = false
 	}
+
+	conf.TerminationMode, err = parser.GetStringAnnotation(ing, terminationModeKey)
+	if err != nil || terminationModeRegex.MatchString(conf.TerminationMode) {
+		conf.TerminationMode = Simple
+	}
+
+	secretStr, _ := parser.GetStringAnnotation(ing, originationCertsKey)
+	secrets := strings.Split(secretStr, ",")
+	for _, secret := range secrets {
+		conf.OriginationCerts = append(conf.OriginationCerts, strings.TrimSpace(secret))
+	}
+
+	return conf
 }

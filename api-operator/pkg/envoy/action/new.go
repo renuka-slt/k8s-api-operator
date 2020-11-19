@@ -7,6 +7,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/controller/common"
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/envoy/names"
+	"github.com/wso2/k8s-api-operator/api-operator/pkg/ingress"
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/ingress/annotations/tls"
 	"github.com/wso2/k8s-api-operator/api-operator/pkg/k8s"
 	v1 "k8s.io/api/core/v1"
@@ -16,7 +17,7 @@ import (
 	"strings"
 )
 
-func FromProjects(ctx context.Context, reqInfo *common.RequestInfo, ingresses []*v1beta1.Ingress, projectsToBeUpdated, existingProjects map[string]bool) (*ProjectsMap, error) {
+func FromProjects(ctx context.Context, reqInfo *common.RequestInfo, ingresses []*ingress.Ingress, projectsToBeUpdated, existingProjects map[string]bool) (*ProjectsMap, error) {
 	projectMap := ProjectsMap{}
 	// Initialize project action with type delete
 	for p := range projectsToBeUpdated {
@@ -58,7 +59,7 @@ func FromProjects(ctx context.Context, reqInfo *common.RequestInfo, ingresses []
 
 // processDefaultBackend go through ingress default backend and updates the Open API Spec (openapi3.Swagger) of
 // names.DefaultBackendProject in the ProjectsMap and the action Type to ForceUpdate
-func processDefaultBackend(ctx context.Context, reqInfo *common.RequestInfo, projects map[string]bool, projectMap *ProjectsMap, ing *v1beta1.Ingress) error {
+func processDefaultBackend(ctx context.Context, reqInfo *common.RequestInfo, projects map[string]bool, projectMap *ProjectsMap, ing *ingress.Ingress) error {
 	log := reqInfo.Log
 	pMap := *projectMap
 	// Default backend
@@ -92,7 +93,7 @@ func processDefaultBackend(ctx context.Context, reqInfo *common.RequestInfo, pro
 
 // processIngressRules go through ingress rules and updates the Open API Spec (openapi3.Swagger) in
 // the ProjectsMap and the action Type to ForceUpdate
-func processIngressRules(ctx context.Context, reqInfo *common.RequestInfo, projects map[string]bool, projectMap *ProjectsMap, ing *v1beta1.Ingress) error {
+func processIngressRules(ctx context.Context, reqInfo *common.RequestInfo, projects map[string]bool, projectMap *ProjectsMap, ing *ingress.Ingress) error {
 	log := reqInfo.Log
 	pMap := *projectMap
 
@@ -154,7 +155,7 @@ func processIngressRules(ctx context.Context, reqInfo *common.RequestInfo, proje
 
 // processIngressTls go through ingress TLS rules and updates the Project.TlsCertificate in
 // the ProjectsMap and the action Type to ForceUpdate
-func processIngressTls(ctx context.Context, reqInfo *common.RequestInfo, projects map[string]bool, projectMap *ProjectsMap, ing *v1beta1.Ingress) error {
+func processIngressTls(ctx context.Context, reqInfo *common.RequestInfo, projects map[string]bool, projectMap *ProjectsMap, ing *ingress.Ingress) error {
 	log := reqInfo.Log
 	pMap := *projectMap
 
@@ -198,7 +199,7 @@ func processIngressTls(ctx context.Context, reqInfo *common.RequestInfo, project
 	return nil
 }
 
-func tlsCertFromIngTls(secret *v1.Secret, ing *v1beta1.Ingress) (*TlsCertificate, error) {
+func tlsCertFromIngTls(secret *v1.Secret, ing *ingress.Ingress) (*TlsCertificate, error) {
 	tlsCert := TlsCertificate{}
 
 	crt, ok := secret.Data["tls.crt"]
@@ -213,8 +214,7 @@ func tlsCertFromIngTls(secret *v1.Secret, ing *v1beta1.Ingress) (*TlsCertificate
 	}
 	tlsCert.PrivateKey = key
 
-	tlsConf := tls.Parse(ing)
-	if tlsConf.TlsMode == tls.Mutual {
+	if ing.ParsedAnnotations.Tls.TerminationMode == tls.Mutual {
 		caCert, ok := secret.Data["ca.crt"]
 		if !ok {
 			return nil, errors.New(fmt.Sprintf("tls ca cert not found in the field \"ca.crt\" of secret %s", secret.String()))
@@ -225,10 +225,9 @@ func tlsCertFromIngTls(secret *v1.Secret, ing *v1beta1.Ingress) (*TlsCertificate
 	return &tlsCert, nil
 }
 
-func urlFromIngBackend(ing *v1beta1.Ingress, backend *v1beta1.IngressBackend) string {
-	tlsConf := tls.Parse(ing)
+func urlFromIngBackend(ing *ingress.Ingress, backend *v1beta1.IngressBackend) string {
 	protocol := "http"
-	if tlsConf.TlsMode == tls.Origination || tlsConf.TlsMode == tls.Passthrough {
+	if ing.ParsedAnnotations.Tls.TerminationMode == tls.Origination || ing.ParsedAnnotations.Tls.PassthroughEnabled {
 		protocol = "https"
 	}
 	// Using only backend.ServiceName
