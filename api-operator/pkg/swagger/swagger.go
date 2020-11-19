@@ -22,7 +22,6 @@ import (
 	"github.com/getkin/kin-openapi/openapi2"
 	"github.com/getkin/kin-openapi/openapi2conv"
 	"github.com/getkin/kin-openapi/openapi3"
-	"gopkg.in/yaml.v2"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/log"
 )
 
@@ -32,7 +31,12 @@ var logger = log.Log.WithName("swagger")
 func GetSwaggerV3(swaggerStr *string) (*openapi3.Swagger, error) {
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromData([]byte(*swaggerStr))
 	if err != nil {
-		logger.Error(err, "Error loading swagger")
+		if swaggerV3, err := convertV2toV3(swaggerStr); err == nil {
+			return swaggerV3, nil
+		}
+
+		// Log first error as well
+		logger.Error(err, "Error loading Open API Specification")
 		return nil, err
 	}
 
@@ -43,11 +47,22 @@ func GetSwaggerV3(swaggerStr *string) (*openapi3.Swagger, error) {
 		return swagger, err
 	} else {
 		logger.Info("OpenAPI v3 not found. Hence converting Swagger v2 to Swagger v3")
-		var swagger2 openapi2.Swagger
-		err2 := yaml.Unmarshal([]byte(*swaggerStr), &swagger2)
-		swaggerV3, err2 := openapi2conv.ToV3Swagger(&swagger2)
-		return swaggerV3, err2
+		return convertV2toV3(swaggerStr)
 	}
+}
+
+func convertV2toV3(swaggerStr *string) (*openapi3.Swagger, error) {
+	var swaggerV2 openapi2.Swagger
+	if err := json.Unmarshal([]byte(*swaggerStr), &swaggerV2); err != nil {
+		return nil, err
+	}
+
+	swaggerV3, err := openapi2conv.ToV3Swagger(&swaggerV2)
+	if err != nil {
+		logger.Error(err, "Error converting Open API Spec v2 to v3")
+		return nil, err
+	}
+	return swaggerV3, nil
 }
 
 func PrettyString(swagger *openapi3.Swagger) string {
