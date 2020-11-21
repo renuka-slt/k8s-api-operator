@@ -40,4 +40,5 @@ jobs:
       # Or tests for specific packages.
       run: |
         cd api-operator/
-        bash -c 'go test ./...; rc=$?; if [ "$rc" -eq 2 ]; then (exit 0); else (exit "$rc"); fi'
+        cmd='go test ./...; rc="$?"; if [ "$rc" -eq 2 ]; then (exit 0); else (exit "$rc"); fi'
+        bash -c "$cmd"

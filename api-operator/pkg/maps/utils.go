@@ -27,6 +27,6 @@ func OneKey(m interface{}) (string, error) {
 		return "", err
 	}
 	keys := reflect.ValueOf(m).MapKeys()
-
+  
 	return keys[0].String(), nil
 }
