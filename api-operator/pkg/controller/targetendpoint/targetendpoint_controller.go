@@ -134,7 +134,7 @@ func (r *ReconcileTargetEndpoint) Reconcile(request reconcile.Request) (reconcil
 		reqLogger.Error(opErr, "Cannot get the operator namespace")
 		operatorNs = wso2NameSpaceConst
 	} else {
-		reqLogger.Info("Operator deployment namespace","current", operatorNs, "default", wso2NameSpaceConst)
+		reqLogger.Info("Operator deployment namespace", "current", operatorNs, "default", wso2NameSpaceConst)
 	}
 
 	depFound := &appsv1.Deployment{}
@@ -631,7 +631,7 @@ func getConfigmap(r *ReconcileTargetEndpoint, mapName string, ns string) (*corev
 
 	if mapName == "apim-config" {
 		if err != nil && errors.IsNotFound(err) {
-			logrus.Warnf("missing APIM configurations ", err)
+			logrus.Warn("missing APIM configurations ", err)
 			return nil, err
 
 		} else if err != nil {
