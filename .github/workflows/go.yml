@@ -2,9 +2,8 @@ name: Go
 
 on:
   push:
-    branches: [ workflow ]
-  pull_request:
-    branches: [ workflow ]
+    branches: [ master ]
+  pull_request: {}
 
 jobs:
 
@@ -12,6 +11,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
+
       - name: Set up Go 1.x
         uses: actions/setup-go@v2
         with:
@@ -38,4 +38,4 @@ jobs:
       - name: Test
         run: |
           cd api-operator/
-          ./test-packages.sh
+          ./run-tests.sh

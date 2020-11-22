@@ -28,5 +28,10 @@ func OneKey(m interface{}) (string, error) {
 	}
 	keys := reflect.ValueOf(m).MapKeys()
 
+	if len(keys) != 1 {
+		err := fmt.Errorf("length of the map should be 1 but was %v", len(keys))
+		return "", err
+	}
+
 	return keys[0].String(), nil
 }
